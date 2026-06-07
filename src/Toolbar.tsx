@@ -20,6 +20,7 @@ import FileUploadIcon from '@mui/icons-material/FileUpload';
 import DownloadIcon from '@mui/icons-material/Download';
 import ColorizeIcon from '@mui/icons-material/Colorize';
 import PanToolIcon from '@mui/icons-material/PanTool';
+import TuneIcon from '@mui/icons-material/Tune';
 import type { ToolMode } from './types';
 >>>>>>> 4cd15f9 (lab2, боковая панель каналов и инструмент пипетка)
 
@@ -31,9 +32,17 @@ interface Props {
   canSave: boolean;
   tool: ToolMode;
   onToolChange: (tool: ToolMode) => void;
+  onOpenLevels: () => void;
 }
 
-export function Toolbar({ onLoad, onSave, canSave, tool, onToolChange }: Props) {
+export function Toolbar({
+  onLoad,
+  onSave,
+  canSave,
+  tool,
+  onToolChange,
+  onOpenLevels,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
 
@@ -120,6 +129,22 @@ export function Toolbar({ onLoad, onSave, canSave, tool, onToolChange }: Props) 
             >
               <ColorizeIcon fontSize="small" />
             </IconButton>
+          </span>
+        </Tooltip>
+
+        <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+
+        <Tooltip title="Уровни: гистограмма и градационная коррекция">
+          <span>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<TuneIcon />}
+              onClick={onOpenLevels}
+              disabled={!canSave}
+            >
+              Уровни
+            </Button>
           </span>
         </Tooltip>
 
