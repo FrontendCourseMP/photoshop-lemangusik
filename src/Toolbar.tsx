@@ -21,6 +21,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import ColorizeIcon from '@mui/icons-material/Colorize';
 import PanToolIcon from '@mui/icons-material/PanTool';
 import TuneIcon from '@mui/icons-material/Tune';
+import PhotoSizeSelectLargeIcon from '@mui/icons-material/PhotoSizeSelectLarge';
 import type { ToolMode } from './types';
 >>>>>>> 4cd15f9 (lab2, боковая панель каналов и инструмент пипетка)
 
@@ -33,6 +34,7 @@ interface Props {
   tool: ToolMode;
   onToolChange: (tool: ToolMode) => void;
   onOpenLevels: () => void;
+  onOpenResize: () => void;
 }
 
 export function Toolbar({
@@ -42,6 +44,7 @@ export function Toolbar({
   tool,
   onToolChange,
   onOpenLevels,
+  onOpenResize,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
@@ -144,6 +147,20 @@ export function Toolbar({
               disabled={!canSave}
             >
               Уровни
+            </Button>
+          </span>
+        </Tooltip>
+
+        <Tooltip title="Изменить размер изображения с выбором алгоритма интерполяции">
+          <span>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<PhotoSizeSelectLargeIcon />}
+              onClick={onOpenResize}
+              disabled={!canSave}
+            >
+              Размер
             </Button>
           </span>
         </Tooltip>
