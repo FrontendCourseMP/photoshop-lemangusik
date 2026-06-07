@@ -1,12 +1,16 @@
-import { createTheme } from '@mui/material/styles';
+import { createTheme } from "@mui/material/styles";
 
 export const theme = createTheme({
   palette: {
-    mode: 'dark',
-    primary: { main: '#4f9dff' },
+    mode: "dark",
+    primary: { main: "#d4bf00" }, // бирюзовый акцент
     background: {
-      default: '#1e1e1e',
-      paper: '#252526',
+      default: "#121212",
+      paper: "#1e1e1e",
+    },
+    text: {
+      primary: "#e0e0e0",
+      secondary: "#aaa",
     },
   },
   typography: {
@@ -14,11 +18,19 @@ export const theme = createTheme({
   },
   components: {
     MuiButton: {
-      defaultProps: { size: 'small' },
-      styleOverrides: { root: { textTransform: 'none' } },
+      defaultProps: { size: "small" },
+      styleOverrides: { root: { textTransform: "none" } },
     },
     MuiToolbar: {
       styleOverrides: { dense: { minHeight: 48 } },
+    },
+    MuiAppBar: {
+      styleOverrides: {
+        root: {
+          backgroundColor: "#1e1e1e",
+          backgroundImage: "none",
+        },
+      },
     },
   },
 });

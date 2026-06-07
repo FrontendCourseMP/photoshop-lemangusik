@@ -1,39 +1,44 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Snackbar } from '@mui/material';
-import { Toolbar, type SaveFormat } from './Toolbar';
-import { ImageCanvas } from './ImageCanvas';
-import { StatusBar } from './StatusBar';
-import { SidePanel } from './SidePanel';
-import { LevelsDialog } from './LevelsDialog';
-import { ResizeDialog } from './ResizeDialog';
-import { FilterDialog } from './FilterDialog';
-import type { PixelImage, PixelSample, ToolMode } from './types';
-import { encodeToBlob, loadImageFile, triggerDownload } from './imageIO';
-import { defaultMask, type ChannelMask } from './channels';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Box, Snackbar } from "@mui/material";
+import { Toolbar, type SaveFormat } from "./Toolbar";
+import { ImageCanvas } from "./ImageCanvas";
+import { StatusBar } from "./StatusBar";
+import { SidePanel } from "./SidePanel";
+import { LevelsDialog } from "./LevelsDialog";
+import { ResizeDialog } from "./ResizeDialog";
+import { FilterDialog } from "./FilterDialog";
+import type { PixelImage, PixelSample, ToolMode } from "./types";
+import { encodeToBlob, loadImageFile, triggerDownload } from "./imageIO";
+import { defaultMask, type ChannelMask } from "./channels";
 import {
   type AllLevels,
   applyAllLevels,
   defaultAllLevels,
   isAllIdentity,
-} from './levels';
-import { resampleImage, type ResampleAlgorithm } from './resample';
+} from "./levels";
+import { resampleImage, type ResampleAlgorithm } from "./resample";
 import {
   type FilterMode,
   getPreset,
   type ChannelMaskRGBA,
   type PaddingMode,
-} from './convolution';
-import { convolveImage } from './convolutionClient';
+} from "./convolution";
+import { convolveImage } from "./convolutionClient";
 
 const ZOOM_MIN = 0.12;
 const ZOOM_MAX = 3.0;
 const FIT_PADDING = 50;
 
-const IDENTITY_KERNEL = ['0', '0', '0', '0', '1', '0', '0', '0', '0'];
-const DEFAULT_FILTER_CHANNELS: ChannelMaskRGBA = { r: true, g: true, b: true, a: false };
+const IDENTITY_KERNEL = ["0", "0", "0", "0", "1", "0", "0", "0", "0"];
+const DEFAULT_FILTER_CHANNELS: ChannelMaskRGBA = {
+  r: true,
+  g: true,
+  b: true,
+  a: false,
+};
 
 function baseName(name: string): string {
-  const dot = name.lastIndexOf('.');
+  const dot = name.lastIndexOf(".");
   return dot > 0 ? name.slice(0, dot) : name;
 }
 
@@ -67,7 +72,7 @@ function isIdentityKernel(k: string[]): boolean {
 }
 
 function isFilterNoop(mode: FilterMode, kernel: string[]): boolean {
-  if (mode === 'median3') return false;
+  if (mode === "median3") return false;
   return isIdentityKernel(kernel);
 }
 
@@ -76,7 +81,7 @@ export default function App() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mask, setMask] = useState<ChannelMask>(defaultMask);
-  const [tool, setTool] = useState<ToolMode>('hand');
+  const [tool, setTool] = useState<ToolMode>("hand");
   const [sample, setSample] = useState<PixelSample | null>(null);
   const [zoom, setZoom] = useState<number>(1);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -91,22 +96,25 @@ export default function App() {
   const [resizeOpen, setResizeOpen] = useState(false);
 
   const [filterOpen, setFilterOpen] = useState(false);
-  const [filterPreset, setFilterPreset] = useState('identity');
-  const [filterMode, setFilterMode] = useState<FilterMode>('kernel');
+  const [filterPreset, setFilterPreset] = useState("identity");
+  const [filterMode, setFilterMode] = useState<FilterMode>("kernel");
   const [filterKernel, setFilterKernel] = useState<string[]>(IDENTITY_KERNEL);
-  const [filterPadding, setFilterPadding] = useState<PaddingMode>('replicate');
-  const [filterChannels, setFilterChannels] = useState<ChannelMaskRGBA>(DEFAULT_FILTER_CHANNELS);
+  const [filterPadding, setFilterPadding] = useState<PaddingMode>("replicate");
+  const [filterChannels, setFilterChannels] = useState<ChannelMaskRGBA>(
+    DEFAULT_FILTER_CHANNELS,
+  );
   const [filterPreview, setFilterPreview] = useState(true);
   const [filterBusy, setFilterBusy] = useState(false);
-  const [filterPreviewImage, setFilterPreviewImage] = useState<PixelImage | null>(null);
+  const [filterPreviewImage, setFilterPreviewImage] =
+    useState<PixelImage | null>(null);
   const filterJobRef = useRef(0);
 
   useEffect(() => {
-    const url = new URLSearchParams(window.location.search).get('sample');
+    const url = new URLSearchParams(window.location.search).get("sample");
     if (!url) return;
     fetch(url)
       .then((r) => r.blob())
-      .then((b) => handleLoad(new File([b], url.split('/').pop() || 'sample')))
+      .then((b) => handleLoad(new File([b], url.split("/").pop() || "sample")))
       .catch(() => undefined);
   }, []);
 
@@ -131,24 +139,48 @@ export default function App() {
   }, [image, levels, levelsOpen, livePreview]);
 
   useEffect(() => {
-    if (!image || !filterOpen || !filterPreview || isFilterNoop(filterMode, filterKernel)) {
+    if (
+      !image ||
+      !filterOpen ||
+      !filterPreview ||
+      isFilterNoop(filterMode, filterKernel)
+    ) {
       setFilterPreviewImage(null);
       setFilterBusy(false);
       return;
     }
     const job = ++filterJobRef.current;
     setFilterBusy(true);
-    convolveImage(image, kernelToNumbers(filterKernel), filterPadding, filterChannels, filterMode).then((res) => {
+    convolveImage(
+      image,
+      kernelToNumbers(filterKernel),
+      filterPadding,
+      filterChannels,
+      filterMode,
+    ).then((res) => {
       if (filterJobRef.current !== job) return;
       setFilterPreviewImage(res);
       setFilterBusy(false);
     });
-  }, [image, filterOpen, filterPreview, filterKernel, filterPadding, filterChannels, filterMode]);
+  }, [
+    image,
+    filterOpen,
+    filterPreview,
+    filterKernel,
+    filterPadding,
+    filterChannels,
+    filterMode,
+  ]);
 
   useEffect(() => {
     if (!image || !fitOnNextRef.current) return;
     if (containerSize.width === 0 || containerSize.height === 0) return;
-    const z = computeFitZoom(image.width, image.height, containerSize.width, containerSize.height);
+    const z = computeFitZoom(
+      image.width,
+      image.height,
+      containerSize.width,
+      containerSize.height,
+    );
     setZoom(z);
     fitOnNextRef.current = false;
   }, [image, containerSize]);
@@ -156,17 +188,34 @@ export default function App() {
   const displayImage = useMemo(() => {
     if (!image) return null;
     if (levelsOpen && livePreview && previewImage) return previewImage;
-    if (filterOpen && filterPreview && filterPreviewImage) return filterPreviewImage;
+    if (filterOpen && filterPreview && filterPreviewImage)
+      return filterPreviewImage;
     return image;
-  }, [image, previewImage, filterPreviewImage, levelsOpen, livePreview, filterOpen, filterPreview]);
+  }, [
+    image,
+    previewImage,
+    filterPreviewImage,
+    levelsOpen,
+    livePreview,
+    filterOpen,
+    filterPreview,
+  ]);
 
-  const handleContainerSize = useCallback((s: { width: number; height: number }) => {
-    setContainerSize(s);
-  }, []);
+  const handleContainerSize = useCallback(
+    (s: { width: number; height: number }) => {
+      setContainerSize(s);
+    },
+    [],
+  );
 
   const handleFit = () => {
     if (!image) return;
-    const z = computeFitZoom(image.width, image.height, containerSize.width, containerSize.height);
+    const z = computeFitZoom(
+      image.width,
+      image.height,
+      containerSize.width,
+      containerSize.height,
+    );
     setZoom(z);
   };
 
@@ -181,7 +230,7 @@ export default function App() {
       setLevels(defaultAllLevels());
       setPreviewImage(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось загрузить файл');
+      setError(e instanceof Error ? e.message : "Не удалось загрузить файл");
     }
   };
 
@@ -189,11 +238,11 @@ export default function App() {
     if (!image) return;
     try {
       const blob = await encodeToBlob(image, format);
-      const ext = format === 'jpeg' ? 'jpg' : format;
-      const name = `${fileName ? baseName(fileName) : 'image'}.${ext}`;
+      const ext = format === "jpeg" ? "jpg" : format;
+      const name = `${fileName ? baseName(fileName) : "image"}.${ext}`;
       triggerDownload(blob, name);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось сохранить файл');
+      setError(e instanceof Error ? e.message : "Не удалось сохранить файл");
     }
   };
 
@@ -230,7 +279,11 @@ export default function App() {
     setResizeOpen(true);
   };
 
-  const handleResizeApply = (width: number, height: number, algorithm: ResampleAlgorithm) => {
+  const handleResizeApply = (
+    width: number,
+    height: number,
+    algorithm: ResampleAlgorithm,
+  ) => {
     if (!image) return;
     try {
       const next = resampleImage(image, width, height, algorithm);
@@ -240,17 +293,17 @@ export default function App() {
       setMask(defaultMask());
       setResizeOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось изменить размер');
+      setError(e instanceof Error ? e.message : "Не удалось изменить размер");
     }
   };
 
   const openFilter = () => {
     if (!image) return;
-    setFilterPreset('identity');
-    setFilterMode('kernel');
+    setFilterPreset("identity");
+    setFilterMode("kernel");
     setFilterKernel(IDENTITY_KERNEL);
     setFilterChannels(DEFAULT_FILTER_CHANNELS);
-    setFilterPadding('replicate');
+    setFilterPadding("replicate");
     setFilterPreview(true);
     setFilterPreviewImage(null);
     setFilterOpen(true);
@@ -263,30 +316,30 @@ export default function App() {
   };
 
   const resetFilter = () => {
-    setFilterPreset('identity');
-    setFilterMode('kernel');
+    setFilterPreset("identity");
+    setFilterMode("kernel");
     setFilterKernel(IDENTITY_KERNEL);
     setFilterChannels(DEFAULT_FILTER_CHANNELS);
-    setFilterPadding('replicate');
+    setFilterPadding("replicate");
   };
 
   const handlePresetChange = (key: string) => {
     setFilterPreset(key);
     const preset = getPreset(key);
     if (preset) {
-      setFilterMode(preset.mode ?? 'kernel');
+      setFilterMode(preset.mode ?? "kernel");
       setFilterKernel(preset.values.map((v) => String(v)));
     }
   };
 
   const handleFilterModeChange = (mode: FilterMode) => {
     setFilterMode(mode);
-    setFilterPreset('custom');
+    setFilterPreset("custom");
   };
 
   const handleKernelChange = (next: string[]) => {
     setFilterKernel(next);
-    setFilterPreset('custom');
+    setFilterPreset("custom");
   };
 
   const applyFilter = async () => {
@@ -305,14 +358,21 @@ export default function App() {
       setFilterOpen(false);
       setFilterPreviewImage(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось применить фильтр');
+      setError(e instanceof Error ? e.message : "Не удалось применить фильтр");
     } finally {
       setFilterBusy(false);
     }
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        overflow: "hidden",
+      }}
+    >
       <Toolbar
         onLoad={handleLoad}
         onSave={handleSave}
@@ -323,23 +383,7 @@ export default function App() {
         onOpenResize={openResize}
         onOpenFilter={openFilter}
       />
-      <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <ImageCanvas
-          image={displayImage}
-          mask={mask}
-          tool={tool}
-          onPick={setSample}
-          zoom={zoom}
-          onContainerSize={handleContainerSize}
-        />
-        <SidePanel
-          image={image}
-          mask={mask}
-          onMaskChange={setMask}
-          sample={sample}
-          toolActive={tool === 'eyedropper'}
-        />
-      </Box>
+      {/* StatusBar перенесён наверх, под тулбар */}
       <StatusBar
         image={image}
         fileName={fileName}
@@ -349,6 +393,24 @@ export default function App() {
         zoomMin={ZOOM_MIN}
         zoomMax={ZOOM_MAX}
       />
+      <Box sx={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <SidePanel
+          image={image}
+          mask={mask}
+          onMaskChange={setMask}
+          sample={sample}
+          toolActive={tool === "eyedropper"}
+        />
+
+        <ImageCanvas
+          image={displayImage}
+          mask={mask}
+          tool={tool}
+          onPick={setSample}
+          zoom={zoom}
+          onContainerSize={handleContainerSize}
+        />
+      </Box>
       {image && (
         <LevelsDialog
           open={levelsOpen}
@@ -396,7 +458,7 @@ export default function App() {
         open={Boolean(error)}
         autoHideDuration={5000}
         onClose={() => setError(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
         <Alert severity="error" onClose={() => setError(null)} variant="filled">
           {error}

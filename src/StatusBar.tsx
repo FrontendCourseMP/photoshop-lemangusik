@@ -7,10 +7,10 @@ import {
   TextField,
   Tooltip,
   Typography,
-} from '@mui/material';
-import FitScreenIcon from '@mui/icons-material/FitScreen';
-import { useState, useEffect } from 'react';
-import type { PixelImage } from './types';
+} from "@mui/material";
+import FitScreenIcon from "@mui/icons-material/FitScreen";
+import { useState, useEffect } from "react";
+import type { PixelImage } from "./types";
 
 interface Props {
   image: PixelImage | null;
@@ -30,7 +30,7 @@ function pct(z: number): number {
 
 function Item({ label, value }: { label: string; value: string }) {
   return (
-    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'baseline' }}>
+    <Box sx={{ display: "flex", gap: 0.75, alignItems: "baseline" }}>
       <Typography variant="caption" color="text.secondary">
         {label}:
       </Typography>
@@ -41,17 +41,27 @@ function Item({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function StatusBar({ image, fileName, zoom, onZoomChange, onFit, zoomMin, zoomMax }: Props) {
+export function StatusBar({
+  image,
+  fileName,
+  zoom,
+  onZoomChange,
+  onFit,
+  zoomMin,
+  zoomMax,
+}: Props) {
   const [text, setText] = useState(String(pct(zoom)));
 
   useEffect(() => {
     setText(String(pct(zoom)));
   }, [zoom]);
 
-  const presetValue = PRESETS.includes(Number(zoom.toFixed(2))) ? Number(zoom.toFixed(2)) : '';
+  const presetValue = PRESETS.includes(Number(zoom.toFixed(2)))
+    ? Number(zoom.toFixed(2))
+    : "";
 
   const commitText = (raw: string) => {
-    const n = parseInt(raw.replace('%', '').trim(), 10);
+    const n = parseInt(raw.replace("%", "").trim(), 10);
     if (!Number.isFinite(n)) {
       setText(String(pct(zoom)));
       return;
@@ -63,39 +73,41 @@ export function StatusBar({ image, fileName, zoom, onZoomChange, onFit, zoomMin,
 
   return (
     <Box
-      component="footer"
       sx={{
-        display: 'flex',
-        alignItems: 'center',
+        display: "flex",
+        alignItems: "center",
         gap: 2,
         px: 2,
-        height: 32,
+        height: 36,
         flexShrink: 0,
-        bgcolor: '#0077cc',
-        color: '#fff',
-        overflowX: 'auto',
-        whiteSpace: 'nowrap',
+        bgcolor: "#1e1e1e", // тёмный фон вместо ярко-синего
+        color: "#e0e0e0",
+        borderBottom: "1px solid #333",
+        overflowX: "auto",
+        whiteSpace: "nowrap",
       }}
     >
       {image ? (
         <>
           {fileName && <Item label="Файл" value={fileName} />}
-          <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.3)' }} />
+          <Divider
+            orientation="vertical"
+            flexItem
+            sx={{ borderColor: "#444" }}
+          />
           <Item label="Ширина" value={`${image.width} px`} />
           <Item label="Высота" value={`${image.height} px`} />
           <Item label="Глубина цвета" value={image.meta.colorDepthLabel} />
           <Item label="Формат" value={image.meta.format.toUpperCase()} />
           <Box sx={{ flex: 1 }} />
           <Tooltip title="Вписать изображение в окно">
-            <span>
-              <IconButton
-                size="small"
-                onClick={onFit}
-                sx={{ color: '#fff' }}
-              >
-                <FitScreenIcon fontSize="small" />
-              </IconButton>
-            </span>
+            <IconButton
+              size="small"
+              onClick={onFit}
+              sx={{ color: "#00bcd4" }} // акцентный цвет (бирюзовый)
+            >
+              <FitScreenIcon fontSize="small" />
+            </IconButton>
           </Tooltip>
           <Typography variant="caption" sx={{ opacity: 0.85 }}>
             Масштаб
@@ -110,10 +122,10 @@ export function StatusBar({ image, fileName, zoom, onZoomChange, onFit, zoomMin,
             }}
             sx={{
               minWidth: 92,
-              color: '#fff',
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.4)' },
-              '& .MuiSvgIcon-root': { color: '#fff' },
-              '& .MuiSelect-select': { py: '2px' },
+              color: "#e0e0e0",
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: "#555" },
+              "& .MuiSvgIcon-root": { color: "#e0e0e0" },
+              "& .MuiSelect-select": { py: "2px" },
             }}
           >
             <MenuItem value="" disabled>
@@ -131,18 +143,22 @@ export function StatusBar({ image, fileName, zoom, onZoomChange, onFit, zoomMin,
             onChange={(e) => setText(e.target.value)}
             onBlur={() => commitText(text)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === "Enter") {
                 commitText(text);
                 (e.target as HTMLElement).blur();
               }
             }}
             sx={{
               width: 70,
-              '& .MuiInputBase-input': { color: '#fff', py: '2px' },
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.4)' },
+              "& .MuiInputBase-input": { color: "#e0e0e0", py: "2px" },
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: "#555" },
             }}
             InputProps={{
-              endAdornment: <Typography variant="caption" sx={{ ml: 0.5 }}>%</Typography>,
+              endAdornment: (
+                <Typography variant="caption" sx={{ ml: 0.5, color: "#aaa" }}>
+                  %
+                </Typography>
+              ),
             }}
           />
         </>
