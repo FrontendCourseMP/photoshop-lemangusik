@@ -1,101 +1,138 @@
-// Преднастроенные ядра 3x3
-export const KERNEL_PRESETS = {
-  identity: {
-    name: 'Тождественное отображение',
-    matrix: [0, 0, 0, 0, 1, 0, 0, 0, 0],
-    divisor: 1
-  },
-  sharpen: {
-    name: 'Повышение резкости',
-    matrix: [0, -1, 0, -1, 5, -1, 0, -1, 0],
-    divisor: 1
-  },
-  gaussian: {
-    name: 'Фильтр Гаусса (3x3)',
-    matrix: [1, 2, 1, 2, 4, 2, 1, 2, 1],
-    divisor: 16
-  },
-  boxBlur: {
-    name: 'Прямоугольное размытие',
-    matrix: [1, 1, 1, 1, 1, 1, 1, 1, 1],
-    divisor: 9
-  },
-  prewittHorizontal: {
-    name: 'Оператор Прюитт (Горизонтальный)',
-    matrix: [-1, 0, 1, -1, 0, 1, -1, 0, 1],
-    divisor: 1
-  },
-  prewittVertical: {
-    name: 'Оператор Прюитт (Вертикальный)',
-    matrix: [-1, -1, -1, 0, 0, 0, 1, 1, 1],
-    divisor: 1
-  }
+export const PRESETS = {
+  identity: [
+    [0, 0, 0],
+    [0, 1, 0],
+    [0, 0, 0]
+  ],
+  sharpen: [
+    [0, -1, 0],
+    [-1, 5, -1],
+    [0, -1, 0]
+  ],
+  gaussian: [
+    [1, 2, 1],
+    [2, 4, 2],
+    [1, 2, 1]
+  ],
+  boxBlur: [
+    [1, 1, 1],
+    [1, 1, 1],
+    [1, 1, 1]
+  ],
+  sobelX: [
+    [-1, 0, 1],
+    [-2, 0, 2],
+    [-1, 0, 1]
+  ],
+  sobelY: [
+    [-1, -2, -1],
+    [ 0,  0,  0],
+    [ 1,  2,  1]
+  ],
+  prewittX: [
+    [-1, 0, 1],
+    [-1, 0, 1],
+    [-1, 0, 1]
+  ]
 };
 
 /**
- * Получение пикселя с учетом краевых условий
+ * Вспомогательная функция получения координаты пикселя с учетом выходящего за край диапазона
+ * @param {number} coord - Текущая координата (X или Y)
+ * @param {number} max - Максимальный размер (Ширина или Высота)
+ * @param {string} mode - Режим обработки краев ('clamp', 'wrap', 'zero')
+ * @returns {number} Координата внутри массива или -1 для режима 'zero'
  */
-function getPixelPadded(srcData, width, height, x, y, channel, edgeStrategy) {
-  // Если внутри границ
-  if (x >= 0 && x < width && y >= 0 && y < height) {
-    return srcData[(y * width + x) * 4 + channel];
-  }
+function getEdgeCoordinate(coord, max, mode) {
+  if (coord >= 0 && coord < max) return coord;
 
-  // Стратегия: Копирование крайних пикселей (Clamp)
-  if (edgeStrategy === 'clamp') {
-    const clampedX = Math.min(Math.max(x, 0), width - 1);
-    const clampedY = Math.min(Math.max(y, 0), height - 1);
-    return srcData[(clampedY * width + clampedX) * 4 + channel];
+  if (mode === 'clamp') {
+    return Math.min(Math.max(coord, 0), max - 1);
+  } else if (mode === 'wrap') {
+    return (coord + max) % max;
+  } else if (mode === 'zero') {
+    return -1; // Сигнал для выхода за границы (черный цвет)
   }
-
-  // Стратегия: Заполнение белым
-  if (edgeStrategy === 'white') {
-    return 255;
-  }
-
-  // Стратегия: Заполнение черным (по умолчанию)
-  return 0;
+  return Math.min(Math.max(coord, 0), max - 1);
 }
 
 /**
  * Применение ядра свертки 3x3 к ImageData
+ * @param {ImageData} imageData - Исходный растр
+ * @param {Array<Array<number>>} kernel - Матрица 3x3
+ * @param {Object} channels - Включенные каналы { r: boolean, g: boolean, b: boolean }
+ * @param {string} edgeMode - Режим краевых условий ('clamp', 'wrap', 'zero')
+ * @returns {ImageData} Обработанное изображение
  */
-export function applyConvolution(imageData, kernel, channels = { r: true, g: true, b: true }, edgeStrategy = 'black') {
+export function applyKernelFilter(imageData, kernel, channels = { r: true, g: true, b: true }, edgeMode = 'clamp') {
   const { width, height, data } = imageData;
-  const output = new Uint8ClampedArray(data.length);
-  output.set(data); // Копируем исходные данные для непроверяемых/пропущенных каналов
+  const output = new ImageData(new Uint8ClampedArray(data.length), width, height);
+  const src = data;
+  const dst = output.data;
 
-  const sumDivisor = kernel.reduce((a, b) => a + b, 0);
-  const divisor = sumDivisor === 0 ? 1 : sumDivisor;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-
-      // Обрабатываем каждый выбранный канал (R=0, G=1, B=2)
-      [0, 1, 2].forEach((ch) => {
-        const channelKey = ch === 0 ? 'r' : ch === 1 ? 'g' : 'b';
-        
-        if (channels[channelKey]) {
-          let sum = 0;
-          let kIdx = 0;
-
-          for (let ky = -1; ky <= 1; ky++) {
-            for (let kx = -1; kx <= 1; kx++) {
-              const pixelVal = getPixelPadded(data, width, height, x + kx, y + ky, ch, edgeStrategy);
-              sum += pixelVal * kernel[kIdx++];
-            }
-          }
-
-          const val = sum / divisor;
-          output[idx + ch] = Math.min(Math.max(val, 0), 255);
-        }
-      });
-
-      // Альфа-канал сохраняем без изменений
-      output[idx + 3] = data[idx + 3];
+  // Рассчитываем сумму элементов ядра для правильной нормировки
+  let kernelWeight = 0;
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      kernelWeight += kernel[r][c];
     }
   }
 
-  return new ImageData(output, width, height);
+  // Если сумма равна 0 (как в фильтрах выделения границ Собеля/Прюитта), нормировка не требуется
+  const divisor = kernelWeight !== 0 ? kernelWeight : 1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const dstIdx = (y * width + x) * 4;
+
+      let sumR = 0;
+      let sumG = 0;
+      let sumB = 0;
+
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const px = getEdgeCoordinate(x + kx, width, edgeMode);
+          const py = getEdgeCoordinate(y + ky, height, edgeMode);
+
+          const weight = kernel[ky + 1][kx + 1];
+
+          if (px === -1 || py === -1) {
+            // Выход за пределы для режима 'zero' (нулевое значение)
+            continue;
+          }
+
+          const srcIdx = (py * width + px) * 4;
+          sumR += src[srcIdx] * weight;
+          sumG += src[srcIdx + 1] * weight;
+          sumB += src[srcIdx + 2] * weight;
+        }
+      }
+
+      // Канал Red
+      if (channels.r) {
+        dst[dstIdx] = Math.min(Math.max(Math.round(sumR / divisor), 0), 255);
+      } else {
+        dst[dstIdx] = src[dstIdx];
+      }
+
+      // Канал Green
+      if (channels.g) {
+        dst[dstIdx + 1] = Math.min(Math.max(Math.round(sumG / divisor), 0), 255);
+      } else {
+        dst[dstIdx + 1] = src[dstIdx + 1];
+      }
+
+      // Канал Blue
+      if (channels.b) {
+        dst[dstIdx + 2] = Math.min(Math.max(Math.round(sumB / divisor), 0), 255);
+      } else {
+        dst[dstIdx + 2] = src[dstIdx + 2];
+      }
+
+      // Канал Alpha не изменяем
+      dst[dstIdx + 3] = src[dstIdx + 3];
+    }
+  }
+
+  return output;
 }

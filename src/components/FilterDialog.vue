@@ -1,72 +1,71 @@
+
 <template>
-  <div 
-    v-if="isOpen" 
-    class="draggable-modal" 
-    :style="{ top: position.y + 'px', left: position.x + 'px' }"
-  >
-    <!-- Шапка окна для перетаскивания -->
-    <div class="modal-header" @mousedown="startDrag">
-      <span class="modal-title">Заказные фильтры (Kernels)</span>
-      <button class="close-btn" @click="closeModal">&times;</button>
-    </div>
-
-    <div class="dialog-content">
-      <div class="preset-selector">
-        <label>Преднастройки:</label>
-        <select v-model="selectedPreset" @change="applyPreset">
-          <option value="identity">Тождественное отображение</option>
-          <option value="sharpen">Повышение резкости</option>
-          <option value="gaussian">Фильтр Гаусса (3x3)</option>
-          <option value="boxBlur">Прямоугольное размытие</option>
-          <option value="prewittHorizontal">Оператор Прюитт (Горизонтальный)</option>
-          <option value="prewittVertical">Оператор Прюитт (Вертикальный)</option>
-        </select>
+  <div v-if="isOpen" class="dialog-overlay">
+    <div class="dialog-window" ref="dialogRef">
+      <div class="dialog-header" @mousedown="startDrag">
+        <span>Фильтры свертки (3x3)</span>
+        <button class="close-btn" @click="closeModal">×</button>
       </div>
 
-      <!-- Сетка ядра 3x3 -->
-      <div class="kernel-grid">
-        <input 
-          v-for="(val, idx) in kernelMatrix" 
-          :key="idx" 
-          type="number" 
-          v-model.number="kernelMatrix[idx]" 
-          @input="onInputDebounce" 
-        />
-      </div>
+      <div class="dialog-body">
+        <!-- Выбор пресета -->
+        <div class="form-group">
+          <label>Пресеты:</label>
+          <select v-model="selectedPreset" @change="applyPreset">
+            <option value="custom">Пользовательский</option>
+            <option value="identity">Тождественное отображение</option>
+            <option value="sharpen">Повышение резкости</option>
+            <option value="gaussian">Размытие по Гауссу</option>
+            <option value="boxBlur">Усредняющий фильтр</option>
+            <option value="sobelX">Собель (X)</option>
+            <option value="sobelY">Собель (Y)</option>
+            <option value="prewittX">Прюитт (X)</option>
+          </select>
+        </div>
 
-      <!-- Выбор каналов -->
-      <div class="options-group">
-        <label>Каналы обработки:</label>
-        <div class="checkbox-row">
-          <label><input type="checkbox" v-model="channels.r" @change="triggerPreview" /> Red</label>
-          <label><input type="checkbox" v-model="channels.g" @change="triggerPreview" /> Green</label>
-          <label><input type="checkbox" v-model="channels.b" @change="triggerPreview" /> Blue</label>
+        <!-- Матрица ядра 3x3 -->
+        <div class="form-group">
+          <label>Ядро свертки (-100 ... 100):</label>
+          <div class="kernel-grid">
+            <div v-for="(row, r) in 3" :key="r" class="kernel-row">
+              <input
+                v-for="(col, c) in 3"
+                :key="c"
+                type="number"
+                min="-100"
+                max="100"
+                step="any"
+                :value="kernel[r][c]"
+                @input="onKernelInput($event, r, c)"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Выбор обрабатываемых каналов -->
+        <div class="form-group">
+          <label>Каналы обработки:</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" v-model="channels.r" @change="triggerPreview" /> R</label>
+            <label><input type="checkbox" v-model="channels.g" @change="triggerPreview" /> G</label>
+            <label><input type="checkbox" v-model="channels.b" @change="triggerPreview" /> B</label>
+          </div>
+        </div>
+
+        <!-- Краевые условия -->
+        <div class="form-group">
+          <label>Обработка краев:</label>
+          <select v-model="edgeMode" @change="triggerPreview">
+            <option value="clamp">Padded / Clamp (повтор края)</option>
+            <option value="wrap">Wrap (зацикливание)</option>
+            <option value="zero">Zero (заполнение нулем)</option>
+          </select>
         </div>
       </div>
 
-      <!-- Стратегия края -->
-      <div class="options-group">
-        <label>Обработка краев (Edge Handling):</label>
-        <select v-model="edgeStrategy" @change="triggerPreview">
-          <option value="black">Заполнение черным</option>
-          <option value="white">Заполнение белым</option>
-          <option value="clamp">Копирование крайних пикселей</option>
-        </select>
-      </div>
-
-      <!-- Статус и предпросмотр -->
-      <div class="preview-option">
-        <label>
-          <input type="checkbox" v-model="enablePreview" @change="triggerPreview" />
-          Предпросмотр
-        </label>
-        <span v-if="isProcessing" class="status-indicator">Вычисление (Worker)...</span>
-      </div>
-
-      <div class="dialog-actions">
-        <button class="btn" @click="resetToDefault">Сбросить</button>
+      <div class="dialog-footer">
         <button class="btn" @click="closeModal">Отмена</button>
-        <button class="btn primary" @click="applyFilter" :disabled="isProcessing">Применить</button>
+        <button class="btn btn-primary" @click="applyFilter">Применить</button>
       </div>
     </div>
   </div>
@@ -74,67 +73,133 @@
 
 <script setup>
 import { ref, reactive, onUnmounted } from 'vue';
-import { KERNEL_PRESETS } from '../utils/kernelFilter';
+import { PRESETS } from '../utils/kernelFilter';
 
 const props = defineProps({
-  imageData: { type: Object, default: null }
+  imageData: Object
 });
 
 const emit = defineEmits(['preview', 'apply']);
 
 const isOpen = ref(false);
-const isProcessing = ref(false);
-const enablePreview = ref(true);
+const dialogRef = ref(null);
 const selectedPreset = ref('identity');
+const edgeMode = ref('clamp');
 
-const kernelMatrix = ref([...KERNEL_PRESETS.identity.matrix]);
-const edgeStrategy = ref('black');
 const channels = reactive({ r: true, g: true, b: true });
 
-// Координаты окна
-const position = reactive({ x: 100, y: 100 });
-let isDragging = false;
-let dragOffset = { x: 0, y: 0 };
+const kernel = reactive([
+  [0, 0, 0],
+  [0, 1, 0],
+  [0, 0, 0]
+]);
 
-// Web Worker
 let worker = null;
-let debounceTimer = null;
-let lastResultImageData = null;
 
 function initWorker() {
   if (!worker) {
     worker = new Worker(new URL('../workers/filterWorker.js', import.meta.url), { type: 'module' });
+    worker.onmessage = (e) => {
+      const { type, imageData } = e.data;
+      if (type === 'PREVIEW_RESULT') {
+        emit('preview', imageData);
+      } else if (type === 'APPLY_RESULT') {
+        emit('apply', imageData);
+        closeModal();
+      }
+    };
   }
 }
 
 function showModal() {
   isOpen.value = true;
   initWorker();
-  if (enablePreview.value) {
-    triggerPreview();
-  }
+  triggerPreview();
 }
 
 function closeModal() {
   isOpen.value = false;
-  // Восстанавливаем оригинальное изображение при отмене
-  emit('preview', props.imageData);
+  if (props.imageData) {
+    emit('preview', props.imageData);
+  }
 }
 
-// Драг-н-Дроп логика
+function onKernelInput(event, r, c) {
+  let val = parseFloat(event.target.value);
+  
+  if (isNaN(val)) {
+    val = 0;
+  } else {
+    if (val > 100) val = 100;
+    if (val < -100) val = -100;
+  }
+
+  event.target.value = val;
+  kernel[r][c] = val;
+  selectedPreset.value = 'custom';
+  triggerPreview();
+}
+
+function applyPreset() {
+  const presetKey = selectedPreset.value;
+  if (PRESETS[presetKey]) {
+    const p = PRESETS[presetKey];
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        kernel[r][c] = p[r][c];
+      }
+    }
+    triggerPreview();
+  }
+}
+
+function triggerPreview() {
+  if (!props.imageData || !worker) return;
+
+  const rawKernel = kernel.map(row => [...row]);
+
+  worker.postMessage({
+    type: 'PROCESS',
+    imageData: props.imageData,
+    kernel: rawKernel,
+    channels: { ...channels },
+    edgeMode: edgeMode.value,
+    isFinal: false
+  });
+}
+
+function applyFilter() {
+  if (!props.imageData || !worker) return;
+
+  const rawKernel = kernel.map(row => [...row]);
+
+  worker.postMessage({
+    type: 'PROCESS',
+    imageData: props.imageData,
+    kernel: rawKernel,
+    channels: { ...channels },
+    edgeMode: edgeMode.value,
+    isFinal: true
+  });
+}
+
+// Логика перетаскивания окна
+let isDragging = false;
+let startX = 0, startY = 0;
+
 function startDrag(e) {
-  if (e.target.classList.contains('close-btn')) return;
+  if (e.target.tagName === 'BUTTON') return;
   isDragging = true;
-  dragOffset.x = e.clientX - position.x;
-  dragOffset.y = e.clientY - position.y;
+  startX = e.clientX - dialogRef.value.offsetLeft;
+  startY = e.clientY - dialogRef.value.offsetTop;
   window.addEventListener('mousemove', onDrag);
   window.addEventListener('mouseup', stopDrag);
 }
 
 function onDrag(e) {
-  if (!isDragging) return;
-  position.x = e.clientX - dragOffset.x;
-  position.y = e.clientY - dragOffset.y;
+  if (!isDragging || !dialogRef.value) return;
+  dialogRef.value.style.left = `${e.clientX - startX}px`;
+  dialogRef.value.style.top = `${e.clientY - startY}px`;
 }
 
 function stopDrag() {
@@ -143,115 +208,44 @@ function stopDrag() {
   window.removeEventListener('mouseup', stopDrag);
 }
 
-function applyPreset() {
-  const preset = KERNEL_PRESETS[selectedPreset.value];
-  if (preset) {
-    kernelMatrix.value = [...preset.matrix];
-    triggerPreview();
-  }
-}
-
-function onInputDebounce() {
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
-    triggerPreview();
-  }, 150);
-}
-
-function resetToDefault() {
-  selectedPreset.value = 'identity';
-  kernelMatrix.value = [...KERNEL_PRESETS.identity.matrix];
-  edgeStrategy.value = 'black';
-  channels.r = true;
-  channels.g = true;
-  channels.b = true;
-  triggerPreview();
-}
-
-/**
- * Запуск фоновых расчетов в Web Worker
- */
-function runWorkerTask(srcImageData) {
-  return new Promise((resolve) => {
-    if (!worker || !srcImageData) return resolve(srcImageData);
-
-    isProcessing.value = true;
-
-    // Скопируем ArrayBuffer для безопасной передачи без блокировки UI
-    const bufferCopy = srcImageData.data.buffer.slice(0);
-
-    worker.onmessage = (e) => {
-      const { buffer, width, height } = e.data;
-      const clamped = new Uint8ClampedArray(buffer);
-      const resData = new ImageData(clamped, width, height);
-      isProcessing.value = false;
-      resolve(resData);
-    };
-
-    worker.postMessage({
-      buffer: bufferCopy,
-      width: srcImageData.width,
-      height: srcImageData.height,
-      kernel: [...kernelMatrix.value],
-      channels: { ...channels },
-      edgeStrategy: edgeStrategy.value
-    }, [bufferCopy]);
-  });
-}
-
-async function triggerPreview() {
-  if (!enablePreview.value || !props.imageData || !isOpen.value) return;
-  lastResultImageData = await runWorkerTask(props.imageData);
-  emit('preview', lastResultImageData);
-}
-
-async function applyFilter() {
-  if (!props.imageData) return;
-  if (!lastResultImageData) {
-    lastResultImageData = await runWorkerTask(props.imageData);
-  }
-  emit('apply', lastResultImageData);
-  isOpen.value = false;
-}
-
 onUnmounted(() => {
   if (worker) worker.terminate();
-  window.removeEventListener('mousemove', onDrag);
-  window.removeEventListener('mouseup', stopDrag);
 });
 
 defineExpose({ showModal });
 </script>
 
 <style scoped>
-.draggable-modal {
+.dialog-overlay {
   position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4);
   z-index: 1000;
-  width: 320px;
-  background: #2b2b2b;
-  color: #ccc;
-  border: 1px solid #454545;
-  border-radius: 6px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
-  user-select: none;
 }
 
-.modal-header {
-  background: #383838;
-  padding: 8px 12px;
-  border-bottom: 1px solid #454545;
-  border-top-left-radius: 6px;
-  border-top-right-radius: 6px;
+.dialog-window {
+  position: absolute;
+  top: 100px;
+  left: 100px;
+  width: 320px;
+  background: #2b2b2b;
+  border: 1px solid #444;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  color: #ddd;
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog-header {
+  padding: 10px 14px;
+  background: #333;
+  border-bottom: 1px solid #444;
+  cursor: move;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  cursor: move;
-}
-
-.modal-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
+  font-weight: bold;
 }
 
 .close-btn {
@@ -260,99 +254,82 @@ defineExpose({ showModal });
   color: #aaa;
   font-size: 18px;
   cursor: pointer;
-  line-height: 1;
 }
+.close-btn:hover { color: #fff; }
 
-.close-btn:hover {
-  color: #fff;
-}
-
-.dialog-content {
+.dialog-body {
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.preset-selector select,
-.options-group select {
-  width: 100%;
-  padding: 5px;
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 12px;
+  color: #aaa;
+}
+
+select, input[type="number"] {
   background: #1e1e1e;
-  border: 1px solid #454545;
+  border: 1px solid #444;
   color: #fff;
-  border-radius: 3px;
-  margin-top: 4px;
+  padding: 6px;
+  border-radius: 4px;
+  outline: none;
 }
 
 .kernel-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  background: #1e1e1e;
-  padding: 8px;
-  border-radius: 4px;
-}
-
-.kernel-grid input {
-  width: 100%;
-  text-align: center;
-  background: #333;
-  border: 1px solid #555;
-  color: #fff;
-  padding: 5px;
-  border-radius: 3px;
-}
-
-.options-group {
   display: flex;
   flex-direction: column;
-  font-size: 12px;
+  gap: 4px;
 }
 
-.checkbox-row {
+.kernel-row {
   display: flex;
-  gap: 12px;
-  margin-top: 4px;
+  gap: 4px;
 }
 
-.preview-option {
+.kernel-row input {
+  width: 100%;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.kernel-row input::-webkit-outer-spin-button,
+.kernel-row input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.checkbox-group {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
+  gap: 16px;
 }
 
-.status-indicator {
-  color: #0098ff;
-  font-size: 11px;
-}
-
-.dialog-actions {
+.dialog-footer {
+  padding: 10px 14px;
+  background: #222;
+  border-top: 1px solid #444;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 6px;
 }
 
 .btn {
-  background: #3c3c3c;
+  padding: 6px 12px;
+  border-radius: 4px;
   border: 1px solid #555;
-  color: #ccc;
-  padding: 5px 10px;
-  font-size: 12px;
-  border-radius: 3px;
+  background: #3a3a3a;
+  color: #fff;
   cursor: pointer;
 }
-
-.btn.primary {
-  background: #007acc;
-  border-color: #0098ff;
-  color: #fff;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.btn:hover { background: #4a4a4a; }
+.btn-primary { background: #0066cc; border-color: #0055bb; }
+.btn-primary:hover { background: #0077ee; }
 </style>
