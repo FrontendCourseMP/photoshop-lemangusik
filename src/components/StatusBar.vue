@@ -3,7 +3,7 @@
     <div class="status-left">
       <span>Размер: {{ width }} × {{ height }} px</span>
       <span class="divider">|</span>
-      <span>Цвет: {{ colorDepth }}</span>
+      <span>Глубина цвета: {{ colorDepth }}</span>
       <template v-if="pixelInfo">
         <span class="divider">|</span>
         <span>X: {{ pixelInfo.x }}, Y: {{ pixelInfo.y }}</span>

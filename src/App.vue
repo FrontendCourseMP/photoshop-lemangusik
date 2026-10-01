@@ -19,7 +19,8 @@
       
       <ChannelsPanel 
         :originalImageData="originalImageData"
-        v-model:activeMode="activeMode"
+        :channelLayout="imageInfo.channelLayout"
+        v-model:activeChannels="activeChannels"
       />
 
       <!-- Плавающая панель пипетки с фоном цвета рабочей зоны канвас (#181818) -->
@@ -74,6 +75,7 @@ import FilterDialog from './components/FilterDialog.vue';
 import { scaleImageData } from './utils/interpolation';
 import { decodeGB7, encodeGB7 } from './utils/gb7Codec';
 import { rgbToLab } from './utils/colorUtils';
+import { getImageMetadata } from './utils/imageMetadata';
 
 const canvasAreaRef = ref(null);
 const levelsDialogRef = ref(null);
@@ -82,7 +84,7 @@ const filterDialogRef = ref(null);
 const pipettePanelRef = ref(null);
 
 const currentTool = ref('select');
-const activeMode = ref(4);
+const activeChannels = ref(['r', 'g', 'b', 'a']);
 const displayZoom = ref(100);
 
 const originalImageData = ref(null);
@@ -92,11 +94,12 @@ const pixelInfo = ref(null);
 const imageInfo = reactive({ 
   width: 0, 
   height: 0, 
-  colorDepth: '—' 
+  colorDepth: '—',
+  channelLayout: 'rgba'
 });
 
 // Отслеживаем переключение каналов и изменения растра для перерисовки
-watch([activeMode, currentImageData], renderFilteredCanvas);
+watch([activeChannels, currentImageData], renderFilteredCanvas);
 
 // Автоматически раскрываем панель пипетки при получении данных о пикселе
 watch(pixelInfo, (newVal) => {
@@ -180,6 +183,13 @@ function calculateAutoFitZoom(imgW, imgH) {
   displayZoom.value = Math.round(autoZoom);
 }
 
+function getDefaultChannels(layout) {
+  if (layout === 'gray') return ['gray'];
+  if (layout === 'graya') return ['gray', 'a'];
+  if (layout === 'rgb') return ['r', 'g', 'b'];
+  return ['r', 'g', 'b', 'a'];
+}
+
 async function handleFileSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -187,33 +197,49 @@ async function handleFileSelect(event) {
   const canvas = canvasAreaRef.value.getCanvas();
   const ctx = canvas.getContext('2d');
   const fileName = file.name.toLowerCase();
+  const arrayBuffer = await file.arrayBuffer();
   let imgData = null;
 
   if (fileName.endsWith('.gb7')) {
-    const arrayBuffer = await file.arrayBuffer();
-    const { width, height, hasMask, imageData } = decodeGB7(arrayBuffer);
+    const { hasMask, imageData } = decodeGB7(arrayBuffer);
     imgData = imageData;
-    imageInfo.colorDepth = hasMask ? '7-bit Grayscale + 1-bit Alpha' : '7-bit Grayscale';
+    imageInfo.colorDepth = hasMask
+      ? '8 бит (7 бит Grayscale + 1 бит маски)'
+      : '7 бит (Grayscale)';
+    imageInfo.channelLayout = hasMask ? 'graya' : 'gray';
   } else {
-    await new Promise((resolve) => {
+    const metadata = getImageMetadata(arrayBuffer, file.name, file.type);
+    imageInfo.colorDepth = metadata.colorDepthLabel;
+    imageInfo.channelLayout = metadata.channelLayout;
+
+    await new Promise((resolve, reject) => {
       const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
       img.onload = () => {
         canvas.width = img.width;
         canvas.height = img.height;
         ctx.drawImage(img, 0, 0);
         imgData = ctx.getImageData(0, 0, img.width, img.height);
-        imageInfo.colorDepth = '32-bit (RGBA)';
-        URL.revokeObjectURL(img.src);
+        URL.revokeObjectURL(objectUrl);
         resolve();
       };
-      img.src = URL.createObjectURL(file);
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Не удалось декодировать изображение'));
+      };
+
+      img.src = objectUrl;
     });
   }
 
   imageInfo.width = imgData.width;
   imageInfo.height = imgData.height;
+  activeChannels.value = getDefaultChannels(imageInfo.channelLayout);
   originalImageData.value = imgData;
   currentImageData.value = imgData;
+  pixelInfo.value = null;
 
   renderFilteredCanvas();
 
@@ -235,16 +261,65 @@ function renderFilteredCanvas() {
 
   const filtered = ctx.createImageData(width, height);
   const out = filtered.data;
-  const mode = activeMode.value;
+  const enabled = new Set(activeChannels.value);
+  const layout = imageInfo.channelLayout;
 
   for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
     const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
 
-    if (mode === 1) { out[i] = gray; out[i + 1] = gray; out[i + 2] = gray; out[i + 3] = 255; }
-    else if (mode === 2) { out[i] = gray; out[i + 1] = gray; out[i + 2] = gray; out[i + 3] = a; }
-    else if (mode === 3) { out[i] = r; out[i + 1] = g; out[i + 2] = b; out[i + 3] = 255; }
-    else if (mode === 4) { out[i] = r; out[i + 1] = g; out[i + 2] = b; out[i + 3] = a; }
+    if (layout === 'gray') {
+      const value = enabled.has('gray') ? gray : 0;
+      out[i] = value;
+      out[i + 1] = value;
+      out[i + 2] = value;
+      out[i + 3] = 255;
+      continue;
+    }
+
+    if (layout === 'graya') {
+      const grayEnabled = enabled.has('gray');
+      const alphaEnabled = enabled.has('a');
+
+      // Если оставлен только Alpha, показываем его как чёрно-белую маску,
+      // а не как полностью прозрачное изображение.
+      if (!grayEnabled && alphaEnabled) {
+        out[i] = a;
+        out[i + 1] = a;
+        out[i + 2] = a;
+        out[i + 3] = 255;
+      } else {
+        const value = grayEnabled ? gray : 0;
+        out[i] = value;
+        out[i + 1] = value;
+        out[i + 2] = value;
+        out[i + 3] = alphaEnabled ? a : 255;
+      }
+      continue;
+    }
+
+    const redEnabled = enabled.has('r');
+    const greenEnabled = enabled.has('g');
+    const blueEnabled = enabled.has('b');
+    const hasVisibleColorChannel = redEnabled || greenEnabled || blueEnabled;
+    const alphaEnabled = layout === 'rgba' && enabled.has('a');
+
+    // Требование лабораторной: если виден только Alpha, пользователь должен
+    // увидеть маску прозрачности.
+    if (!hasVisibleColorChannel && alphaEnabled) {
+      out[i] = a;
+      out[i + 1] = a;
+      out[i + 2] = a;
+      out[i + 3] = 255;
+    } else {
+      out[i] = redEnabled ? r : 0;
+      out[i + 1] = greenEnabled ? g : 0;
+      out[i + 2] = blueEnabled ? b : 0;
+      out[i + 3] = alphaEnabled ? a : 255;
+    }
   }
 
   ctx.putImageData(filtered, 0, 0);
