@@ -33,7 +33,40 @@
 
       <!-- Canvas для Гистограммы -->
       <div class="histogram-container">
-        <canvas ref="histCanvasRef" width="256" height="120"></canvas>
+        <div class="histogram-plot">
+          <canvas ref="histCanvasRef" width="256" height="140"></canvas>
+          <div class="level-guide" :style="{ left: `${currentSetting.inBlack / 255 * 100}%` }"></div>
+          <div class="level-guide gamma-guide" :style="{ left: `${gammaPosition / 255 * 100}%` }"></div>
+          <div class="level-guide" :style="{ left: `${currentSetting.inWhite / 255 * 100}%` }"></div>
+          <input
+            type="range"
+            min="0"
+            max="255"
+            v-model.number="currentSetting.inBlack"
+            @input="validateBlack"
+            class="histogram-slider slider-black"
+            aria-label="Точка черного"
+          />
+          <input
+            type="range"
+            min="0"
+            max="255"
+            step="any"
+            v-model.number="gammaPosition"
+            class="histogram-slider slider-gamma"
+            aria-label="Гамма"
+            :aria-valuetext="String(currentSetting.gamma)"
+          />
+          <input
+            type="range"
+            min="0"
+            max="255"
+            v-model.number="currentSetting.inWhite"
+            @input="validateWhite"
+            class="histogram-slider slider-white"
+            aria-label="Точка белого"
+          />
+        </div>
       </div>
 
       <!-- Входные уровни (Input Levels) -->
@@ -75,31 +108,7 @@
           </label>
         </div>
 
-        <!-- Слайдеры -->
-        <div class="range-sliders">
-          <input 
-            type="range" 
-            min="0" 
-            :max="currentSetting.inWhite - 1" 
-            v-model.number="currentSetting.inBlack" 
-            class="slider slider-black" 
-          />
-          <input 
-            type="range" 
-            min="0.1" 
-            max="9.9" 
-            step="0.05" 
-            v-model.number="currentSetting.gamma" 
-            class="slider slider-gamma" 
-          />
-          <input 
-            type="range" 
-            :min="currentSetting.inBlack + 1" 
-            max="255" 
-            v-model.number="currentSetting.inWhite" 
-            class="slider slider-white" 
-          />
-        </div>
+
       </div>
 
       <!-- Опции предпросмотра -->
@@ -190,6 +199,22 @@ const settings = reactive(defaultSettings());
 const histograms = ref(null);
 
 const currentSetting = computed(() => settings[selectedChannel.value]);
+
+// Маркер гаммы показывает исходную яркость, переходящую в средний тон.
+const gammaPosition = computed({
+  get() {
+    const { inBlack, inWhite, gamma } = currentSetting.value;
+    return inBlack + (inWhite - inBlack) * Math.pow(0.5, gamma);
+  },
+  set(value) {
+    const setting = currentSetting.value;
+    const range = setting.inWhite - setting.inBlack;
+    if (range <= 0) return;
+    const normalized = (value - setting.inBlack) / range;
+    const clamped = Math.min(Math.max(normalized, Math.pow(0.5, 9.9)), Math.pow(0.5, 0.1));
+    setting.gamma = Math.round(Math.log(clamped) / Math.log(0.5) * 100) / 100;
+  }
+});
 
 function validateBlack() {
   if (currentSetting.value.inBlack >= currentSetting.value.inWhite) {
@@ -346,20 +371,96 @@ select {
 .histogram-container {
   background: #1e1e1e;
   border: 1px solid #3c3c3c;
-  height: 120px;
-  display: flex;
-  justify-content: center;
+  border-radius: 4px;
+  padding: 6px 8px 10px;
 }
+
+.histogram-plot {
+  position: relative;
+  height: 140px;
+  border-bottom: 1px solid #888;
+}
+
+.histogram-plot canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.level-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #777;
+  pointer-events: none;
+}
+
+.gamma-guide {
+  background: none;
+  border-left: 1px dashed #666;
+}
+
+.histogram-slider {
+  position: absolute;
+  left: -7px;
+  bottom: -8px;
+  width: calc(100% + 14px);
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+  --marker-color: #999;
+}
+
+.histogram-slider::-webkit-slider-runnable-track {
+  height: 16px;
+  background: transparent;
+}
+
+.histogram-slider::-moz-range-track {
+  height: 16px;
+  background: transparent;
+}
+
+.histogram-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  background: var(--marker-color);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+
+.histogram-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--marker-color);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+
+.histogram-slider:focus-visible {
+  outline: 1px solid #007acc;
+  outline-offset: 3px;
+}
+
+.slider-black { --marker-color: #555; }
+.slider-white { --marker-color: #ddd; }
 
 .section-title { font-size: 12px; color: #888; margin-bottom: 6px; }
-.inputs-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.inputs-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 12px; }
 .inputs-row label { display: flex; flex-direction: column; gap: 4px; }
 .inputs-row input[type="number"] {
-  width: 60px; background: #333; color: #fff; border: 1px solid #555; padding: 3px 6px; border-radius: 3px;
+  width: 100%; box-sizing: border-box; background: #333; color: #fff; border: 1px solid #555; padding: 3px 6px; border-radius: 3px;
 }
-
-.range-sliders { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.slider { width: 100%; accent-color: #007acc; cursor: pointer; }
 
 .preview-row { font-size: 13px; }
 .checkbox-label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
