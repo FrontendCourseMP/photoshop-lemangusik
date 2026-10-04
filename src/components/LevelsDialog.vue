@@ -52,7 +52,8 @@
             min="0"
             max="255"
             step="any"
-            v-model.number="gammaPosition"
+            :value="gammaPosition"
+            @input="onGammaSliderInput"
             class="histogram-slider slider-gamma"
             aria-label="Гамма"
             :aria-valuetext="String(currentSetting.gamma)"
@@ -200,21 +201,35 @@ const histograms = ref(null);
 
 const currentSetting = computed(() => settings[selectedChannel.value]);
 
-// Маркер гаммы показывает исходную яркость, переходящую в средний тон.
+// Шкала маркера: гамма 9.9 — чёрная точка, 1 — середина, 0.1 — белая.
+// Позиция в UI независима от формулы коррекции яркости в levelsUtils.
 const gammaPosition = computed({
   get() {
     const { inBlack, inWhite, gamma } = currentSetting.value;
-    return inBlack + (inWhite - inBlack) * Math.pow(0.5, gamma);
+    const clampedGamma = Math.min(Math.max(gamma, 0.1), 9.9);
+    const fraction = clampedGamma >= 1
+      ? 0.5 * (1 - Math.log(clampedGamma) / Math.log(9.9))
+      : 0.5 * (1 + Math.log(clampedGamma) / Math.log(0.1));
+    return inBlack + (inWhite - inBlack) * fraction;
   },
   set(value) {
     const setting = currentSetting.value;
     const range = setting.inWhite - setting.inBlack;
     if (range <= 0) return;
-    const normalized = (value - setting.inBlack) / range;
-    const clamped = Math.min(Math.max(normalized, Math.pow(0.5, 9.9)), Math.pow(0.5, 0.1));
-    setting.gamma = Math.round(Math.log(clamped) / Math.log(0.5) * 100) / 100;
+    const fraction = Math.min(Math.max((value - setting.inBlack) / range, 0), 1);
+    const gamma = fraction <= 0.5
+      ? Math.pow(9.9, 1 - 2 * fraction)
+      : Math.pow(0.1, 2 * fraction - 1);
+    setting.gamma = Math.round(gamma * 100) / 100;
   }
 });
+
+function onGammaSliderInput(event) {
+  gammaPosition.value = Number(event.target.value);
+  // Даже если гамма уже на пределе и не изменилась, возвращаем нативный
+  // ползунок в рассчитанную позицию внутри чёрной и белой точек.
+  event.target.value = gammaPosition.value;
+}
 
 function validateBlack() {
   if (currentSetting.value.inBlack >= currentSetting.value.inWhite) {
