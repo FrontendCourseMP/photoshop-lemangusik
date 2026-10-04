@@ -46,9 +46,21 @@
         <div class="form-group">
           <label>Каналы обработки:</label>
           <div class="checkbox-group">
-            <label><input type="checkbox" v-model="channels.r" @change="triggerPreview" /> R</label>
-            <label><input type="checkbox" v-model="channels.g" @change="triggerPreview" /> G</label>
-            <label><input type="checkbox" v-model="channels.b" @change="triggerPreview" /> B</label>
+            <label>
+              <input type="checkbox" v-model="master" :indeterminate="masterPartial" @change="triggerPreview" />
+              Master
+            </label>
+            <label v-if="isGray">
+              <input type="checkbox" v-model="channels.gray" @change="triggerPreview" /> Gray
+            </label>
+            <template v-else>
+              <label><input type="checkbox" v-model="channels.r" @change="triggerPreview" /> R</label>
+              <label><input type="checkbox" v-model="channels.g" @change="triggerPreview" /> G</label>
+              <label><input type="checkbox" v-model="channels.b" @change="triggerPreview" /> B</label>
+            </template>
+            <label v-if="hasAlpha">
+              <input type="checkbox" v-model="channels.a" @change="triggerPreview" /> Alpha
+            </label>
           </div>
         </div>
 
@@ -61,6 +73,12 @@
             <option value="zero">Zero (заполнение нулем)</option>
           </select>
         </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" v-model="isPreview" @change="triggerPreview" />
+            Предпросмотр
+          </label>
+        </div>
       </div>
 
       <div class="dialog-footer">
@@ -72,11 +90,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, onUnmounted } from 'vue';
+import { ref, reactive, computed, onUnmounted } from 'vue';
 import { PRESETS } from '../utils/kernelFilter';
 
 const props = defineProps({
-  imageData: Object
+  imageData: Object,
+  channelLayout: { type: String, default: 'rgba' }
 });
 
 const emit = defineEmits(['preview', 'apply']);
@@ -86,7 +105,31 @@ const dialogRef = ref(null);
 const selectedPreset = ref('identity');
 const edgeMode = ref('clamp');
 
-const channels = reactive({ r: true, g: true, b: true });
+const isPreview = ref(true);
+const isGray = computed(() => ['gray', 'graya'].includes(props.channelLayout));
+const hasAlpha = computed(() => ['rgba', 'graya'].includes(props.channelLayout));
+
+const channels = reactive({ r: true, g: true, b: true, gray: true, a: false });
+const colorChannelIds = computed(() => isGray.value ? ['gray'] : ['r', 'g', 'b']);
+
+// Master управляет всей группой цветовых каналов; Alpha независим.
+const master = computed({
+  get: () => colorChannelIds.value.every(id => channels[id]),
+  set: enabled => {
+    for (const id of colorChannelIds.value) channels[id] = enabled;
+  }
+});
+const masterPartial = computed(() =>
+  !master.value && colorChannelIds.value.some(id => channels[id])
+);
+
+// Gray хранится в растре как три одинаковые компоненты RGB.
+const processingChannels = computed(() => ({
+  r: isGray.value ? channels.gray : channels.r,
+  g: isGray.value ? channels.gray : channels.g,
+  b: isGray.value ? channels.gray : channels.b,
+  a: hasAlpha.value && channels.a
+}));
 
 const kernel = reactive([
   [0, 0, 0],
@@ -95,31 +138,40 @@ const kernel = reactive([
 ]);
 
 let worker = null;
+let requestId = 0;
+let isApplying = false;
 
 function initWorker() {
   if (!worker) {
     worker = new Worker(new URL('../workers/filterWorker.js', import.meta.url), { type: 'module' });
     worker.onmessage = (e) => {
-      const { type, imageData } = e.data;
-      if (type === 'PREVIEW_RESULT') {
+      const { type, imageData, requestId: resultId } = e.data;
+      if (!isOpen.value || resultId !== requestId) return;
+      if (type === 'PREVIEW_RESULT' && isPreview.value && !isApplying) {
         emit('preview', imageData);
-      } else if (type === 'APPLY_RESULT') {
+      } else if (type === 'APPLY_RESULT' && isApplying) {
+        // Не восстанавливаем исходный растр после применения.
+        closeModal(false);
         emit('apply', imageData);
-        closeModal();
       }
     };
   }
 }
 
 function showModal() {
+  Object.assign(channels, { r: true, g: true, b: true, gray: true, a: false });
+  isApplying = false;
   isOpen.value = true;
   initWorker();
   triggerPreview();
 }
 
-function closeModal() {
+function closeModal(restoreOriginal = true) {
   isOpen.value = false;
-  if (props.imageData) {
+  isApplying = false;
+  requestId++;
+  stopDrag();
+  if (restoreOriginal && props.imageData) {
     emit('preview', props.imageData);
   }
 }
@@ -154,33 +206,35 @@ function applyPreset() {
 }
 
 function triggerPreview() {
-  if (!props.imageData || !worker) return;
+  if (!isOpen.value || isApplying) return;
+  // Инвалидируем уже отправленные запросы, в том числе при отключении.
+  requestId++;
+  if (!isPreview.value) {
+    if (props.imageData) emit('preview', props.imageData);
+    return;
+  }
+  processFilter(false);
+}
 
-  const rawKernel = kernel.map(row => [...row]);
+function processFilter(isFinal) {
+  if (!props.imageData || !worker) return;
 
   worker.postMessage({
     type: 'PROCESS',
+    requestId,
     imageData: props.imageData,
-    kernel: rawKernel,
-    channels: { ...channels },
+    kernel: kernel.map(row => [...row]),
+    channels: { ...processingChannels.value },
     edgeMode: edgeMode.value,
-    isFinal: false
+    isFinal
   });
 }
 
 function applyFilter() {
-  if (!props.imageData || !worker) return;
-
-  const rawKernel = kernel.map(row => [...row]);
-
-  worker.postMessage({
-    type: 'PROCESS',
-    imageData: props.imageData,
-    kernel: rawKernel,
-    channels: { ...channels },
-    edgeMode: edgeMode.value,
-    isFinal: true
-  });
+  if (!isOpen.value || !props.imageData || !worker || isApplying) return;
+  isApplying = true;
+  requestId++;
+  processFilter(true);
 }
 
 // Логика перетаскивания окна
@@ -209,6 +263,7 @@ function stopDrag() {
 }
 
 onUnmounted(() => {
+  stopDrag();
   if (worker) worker.terminate();
 });
 
@@ -309,7 +364,14 @@ select, input[type="number"] {
 
 .checkbox-group {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .dialog-footer {

@@ -60,7 +60,7 @@ function getEdgeCoordinate(coord, max, mode) {
  * Применение ядра свертки 3x3 к ImageData
  * @param {ImageData} imageData - Исходный растр
  * @param {Array<Array<number>>} kernel - Матрица 3x3
- * @param {Object} channels - Включенные каналы { r: boolean, g: boolean, b: boolean }
+ * @param {Object} channels - Включенные каналы { r: boolean, g: boolean, b: boolean, a?: boolean }
  * @param {string} edgeMode - Режим краевых условий ('clamp', 'wrap', 'zero')
  * @returns {ImageData} Обработанное изображение
  */
@@ -88,6 +88,7 @@ export function applyKernelFilter(imageData, kernel, channels = { r: true, g: tr
       let sumR = 0;
       let sumG = 0;
       let sumB = 0;
+      let sumA = 0;
 
       for (let ky = -1; ky <= 1; ky++) {
         for (let kx = -1; kx <= 1; kx++) {
@@ -105,6 +106,7 @@ export function applyKernelFilter(imageData, kernel, channels = { r: true, g: tr
           sumR += src[srcIdx] * weight;
           sumG += src[srcIdx + 1] * weight;
           sumB += src[srcIdx + 2] * weight;
+          if (channels.a) sumA += src[srcIdx + 3] * weight;
         }
       }
 
@@ -129,8 +131,10 @@ export function applyKernelFilter(imageData, kernel, channels = { r: true, g: tr
         dst[dstIdx + 2] = src[dstIdx + 2];
       }
 
-      // Канал Alpha не изменяем
-      dst[dstIdx + 3] = src[dstIdx + 3];
+      // Alpha фильтруем только при явном выборе этого канала.
+      dst[dstIdx + 3] = channels.a
+        ? Math.min(Math.max(Math.round(sumA / divisor), 0), 255)
+        : src[dstIdx + 3];
     }
   }
 

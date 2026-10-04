@@ -56,6 +56,7 @@
     <FilterDialog 
       ref="filterDialogRef"
       :imageData="originalImageData"
+      :channelLayout="imageInfo.channelLayout"
       @preview="handlePreview"
       @apply="handleApply"
     />
